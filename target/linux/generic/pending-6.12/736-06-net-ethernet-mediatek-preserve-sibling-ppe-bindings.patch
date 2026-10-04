@@ -1,0 +1,33 @@
+From: Alexander Goodkind <alex@goodkind.io>
+Subject: [PATCH] net: ethernet: mediatek: preserve sibling PPE bindings
+
+Several hardware slots share one software flow bucket. When binding an
+unbound slot, __mtk_ppe_check_skb() walks that bucket and clears every
+nonmatching flow with a valid hash. This also clears software references
+to flows still bound in other slots of the bucket.
+
+With cumulative flow accounting, the next stats request for such a flow
+returns its stored previous counters instead of its active hardware
+counters. The unsigned delta can then inflate conntrack accounting by
+approximately 2^32 bytes and packets. Later requests stop accounting for
+traffic still forwarded by the detached hardware flow.
+
+Only clear an old binding when it refers to the hardware slot currently
+being replaced. Preserve sibling bindings in the other slots.
+
+Signed-off-by: Alexander Goodkind <alex@goodkind.io>
+---
+ drivers/net/ethernet/mediatek/mtk_ppe.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/drivers/net/ethernet/mediatek/mtk_ppe.c
++++ b/drivers/net/ethernet/mediatek/mtk_ppe.c
+@@ -804,7 +804,7 @@ void __mtk_ppe_check_skb(struct mtk_ppe *ppe, struct sk_buff *skb, u16 hash)
+ 	hlist_for_each_entry_safe(entry, n, head, list) {
+ 		if (found ||
+ 		    !mtk_flow_entry_match(ppe->eth, entry, &foe, entry_len)) {
+-			if (entry->hash != 0xffff)
++			if (entry->hash == hash)
+ 				__mtk_foe_entry_clear(ppe, entry, false);
+ 			continue;
+ 		}
